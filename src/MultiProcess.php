@@ -3,44 +3,44 @@
 namespace Turbo\Foundation;
 
 /**
- * Class MultipleProcess
+ * Class MultiProcess
  * @package Turbo\Foundation
  */
-class MultipleProcess
+class MultiProcess
 {
     /**
      * Producer process type
      */
-    const PRODUCER_PROCESS  = 1;
+    const P_TYPE_PRODUCER  = 1;
 
     /**
      * Consumer process type
      */
-    const CONSUMER_PROCESS  = 2;
+    const P_TYPE_CONSUMER  = 2;
 
     /**
      * Normal message
      */
-    const MSG_TYPE_NORMAL   = 1;
+    const M_TYPE_NORMAL   = 1;
 
     /**
      * End message
      */
-    const MSG_TYPE_END      = 99;
+    const M_TYPE_END      = 99;
 
     /**
      * Producer process number
      *
      * @var int
      */
-    private $producerNum;
+    private $producerWorkerNum;
 
     /**
      * Consumer process number, must be larger than zero
      *
      * @var int
      */
-    private $consumerNum;
+    private $consumerWorkerNum;
 
     /**
      * Producer
@@ -90,8 +90,8 @@ class MultipleProcess
      * @var array
      */
     private $config = [
-        'name'      => 'TurboMultipleProcess',
-        'restart'   => true
+        'name'      => 'TurboMultiProcess',
+        'restart'   => false
     ];
 
     /**
@@ -103,10 +103,20 @@ class MultipleProcess
      */
     public function __construct($consumerNum, $producerNum = 0)
     {
-        $this->consumerNum = $consumerNum;
-        $this->producerNum = $producerNum;
+        $this->consumerWorkerNum = $consumerNum;
+        $this->producerWorkerNum = $producerNum;
 
-        assert($this->consumerNum > 0);
+        assert($this->consumerWorkerNum > 0);
+    }
+
+    /**
+     * @return $this
+     */
+    public function setAutoRestart()
+    {
+        $this->config['restart'] = true;
+
+        return $this;
     }
 
     /**
@@ -119,12 +129,12 @@ class MultipleProcess
     {
         if (is_callable($producer)) {
             $this->producer = $producer;
-            if ($this->producerNum <= 0) {
-                $this->producerNum = 1;
+            if ($this->producerWorkerNum <= 0) {
+                $this->producerWorkerNum = 1;
             }
 
         } else {
-            $this->producerNum = 1;
+            $this->producerWorkerNum = 1;
             $this->producer    = function() use (&$producer) {
                 return $producer ? array_shift($producer) : false;
             };
@@ -162,7 +172,7 @@ class MultipleProcess
     private function setProcessTitle($type)
     {
         if (function_exists('cli_set_process_title')) {
-            cli_set_process_title($this->config['name'] . ': ' . $type);
+            @cli_set_process_title($this->config['name'] . ': ' . $type);
         }
     }
 
@@ -206,7 +216,7 @@ class MultipleProcess
                     }
 
                     foreach ($data as $item) {
-                        if (!msg_send($this->queue, self::MSG_TYPE_NORMAL, $item, true, true, $errcode)) {
+                        if (!msg_send($this->queue, self::M_TYPE_NORMAL, $item, true, true, $errcode)) {
                         }
                     }
                 }
@@ -244,7 +254,7 @@ class MultipleProcess
             // current pid
             $currentPid = posix_getpid();
 
-            if (!$this->producerNum) {
+            if (!$this->producerWorkerNum) {
                 // no producer!
                 call_user_func($this->consumer, $currentPid, $index);
 
@@ -258,7 +268,7 @@ class MultipleProcess
                         continue;
                     }
 
-                    if ($messageType === self::MSG_TYPE_NORMAL) {
+                    if ($messageType === self::M_TYPE_NORMAL) {
                         call_user_func($this->consumer, $currentPid, $index, $data);
                     } else {
                         break;
@@ -326,8 +336,8 @@ class MultipleProcess
                 } else {
                     unset($this->producers[$index]);
                     if (!$this->producers && $this->queue) {
-                        for ($i = 0; $i < $this->consumerNum; ++$i) {
-                            msg_send($this->queue, self::MSG_TYPE_END, NULL);
+                        for ($i = 0; $i < $this->consumerWorkerNum; ++$i) {
+                            msg_send($this->queue, self::M_TYPE_END, NULL);
                         }
                     }
                 }
@@ -354,18 +364,18 @@ class MultipleProcess
         $this->setProcessTitle('main');
 
         // if have producer
-        if ($this->producerNum) {
+        if ($this->producerWorkerNum) {
             // create message queue
             $this->queue = msg_get_queue(posix_getpid());
 
             // create producer process
-            for ($i = 0; $i < $this->producerNum; ++$i) {
+            for ($i = 0; $i < $this->producerWorkerNum; ++$i) {
                 $this->createProducerProcess($i);
             }
         }
 
         // create consumer process
-        for ($i = 0; $i < $this->consumerNum; ++$i) {
+        for ($i = 0; $i < $this->consumerWorkerNum; ++$i) {
             $this->createConsumerProcess($i);
         }
 
